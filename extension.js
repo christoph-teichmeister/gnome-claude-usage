@@ -233,7 +233,9 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'claude-panel-label',
         });
+        this._panelBar = this._newPanelBar();
         box.add_child(this._icon);
+        box.add_child(this._panelBar);
         box.add_child(this._label);
         this.add_child(box);
 
@@ -262,6 +264,10 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
     _applyTheme() {
         this._colors = resolveTheme(this._settings);
         this._icon.style = colorStyle(this._colors.accent);
+        const bar = this._newPanelBar();
+        this._panelBar.get_parent().replace_child(this._panelBar, bar);
+        this._panelBar.destroy();
+        this._panelBar = bar;
         this.menu.removeAll();
         this._windowRows = [];
         this._buildMenu();
@@ -416,6 +422,14 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         });
     }
 
+    _newPanelBar() {
+        const bar = new UsageBar(this._colors);
+        bar.add_style_class_name('claude-panel-bar');
+        bar.x_expand = false;
+        bar.visible = false;
+        return bar;
+    }
+
     _windowByKey(key) {
         return this._data?.live?.windows?.find(w => w.key === key) ?? null;
     }
@@ -457,6 +471,10 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
 
         // The label keeps the top bar's own colour until usage needs attention.
         const level = levelFor(fraction);
+        // Percent modes can also show a small bar; cost modes have no limit to fill.
+        this._panelBar.visible = this._settings.get_boolean('panel-bar') &&
+            ((mode === 'session-percent' && !!session) || (mode === 'week-percent' && !!week));
+        this._panelBar.setFraction(fraction);
         this._label.visible = text !== null;
         this._label.text = text ?? '';
         this._label.style = level === 'normal' ? null : colorStyle(levelColor(this._colors, level));
