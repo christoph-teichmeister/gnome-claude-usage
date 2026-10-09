@@ -113,6 +113,12 @@ class UsageBar extends St.Widget {
         });
         this._colors = colors;
         this._fraction = 0;
+        this._pace = null;
+        // Muted marker behind the fill: where usage would be at an even pace.
+        this._ghost = new St.Widget({style_class: 'claude-bar-fill', opacity: 90});
+        this._ghost.style = backgroundStyle(colors.accent);
+        this._ghost.visible = false;
+        this.add_child(this._ghost);
         this._fill = new St.Widget({style_class: 'claude-bar-fill'});
         this.add_child(this._fill);
     }
@@ -126,8 +132,21 @@ class UsageBar extends St.Widget {
         this.queue_relayout();
     }
 
+    setPace(fraction) {
+        this._pace = fraction === null ? null : Math.max(0, Math.min(1, fraction));
+        this._ghost.visible = this._pace !== null;
+        this.queue_relayout();
+    }
+
     vfunc_allocate(box) {
         this.set_allocation(box);
+        if (this._pace !== null) {
+            this._ghost.allocate(new Clutter.ActorBox({
+                x1: 0, y1: 0,
+                x2: Math.round(box.get_width() * this._pace),
+                y2: box.get_height(),
+            }));
+        }
         const fill = new Clutter.ActorBox({
             x1: 0,
             y1: 0,
@@ -168,6 +187,14 @@ class Sparkline extends St.BoxLayout {
     }
 });
 
+// Share of the window already elapsed = utilization if the limit were used up evenly.
+function elapsedFraction(window, now) {
+    if (!window?.resetsAt)
+        return null;
+    const length = window.key === 'five_hour' ? 5 * HOUR : 7 * 24 * HOUR;
+    return (now - (window.resetsAt - length)) / length;
+}
+
 // One plan-limit window: title, "N% used", a bar, and when it resets.
 const WindowRow = GObject.registerClass(
 class WindowRow extends St.BoxLayout {
@@ -191,6 +218,7 @@ class WindowRow extends St.BoxLayout {
         this._title.text = window.title;
         this._value.text = `${Math.floor(window.utilization)}% used`;
         this._bar.setFraction(window.utilization / 100);
+        this._bar.setPace(elapsedFraction(window, now));
 
         const parts = [];
         if (window.resetsAt) {
@@ -441,6 +469,8 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
 
         let text = null;
         let fraction = 0;
+        let pace = null;
+        const now = Date.now();
         switch (mode) {
         case 'icon-only':
             break;
@@ -448,6 +478,7 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             if (week) {
                 text = `${Math.floor(week.utilization)}%`;
                 fraction = week.utilization / 100;
+                pace = elapsedFraction(week, now);
             }
             break;
         case 'session-cost':
@@ -460,6 +491,7 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             if (session) {
                 text = `${Math.floor(session.utilization)}%`;
                 fraction = session.utilization / 100;
+                pace = elapsedFraction(session, now);
             }
             break;
         }
@@ -475,6 +507,7 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._panelBar.visible = this._settings.get_boolean('panel-bar') &&
             ((mode === 'session-percent' && !!session) || (mode === 'week-percent' && !!week));
         this._panelBar.setFraction(fraction);
+        this._panelBar.setPace(pace);
         this._label.visible = text !== null;
         this._label.text = text ?? '';
         this._label.style = level === 'normal' ? null : colorStyle(levelColor(this._colors, level));
